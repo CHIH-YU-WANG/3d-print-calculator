@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>3D列印成本計算器</title>
+
+  <!-- iOS Safari PWA 特別設定 -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="列印成本">
+  <link rel="apple-touch-icon" href="icon.svg">
+
+  <!-- Manifest 連結 -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0f172a">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      background-color: #0f172a;
+      color: #f8fafc;
+      padding-top: env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col font-sans">
+  <div class="max-w-md w-full mx-auto p-4 flex-1 flex flex-col justify-between">
+    <!-- 標題欄 -->
+    <header class="py-4 text-center border-b border-slate-800">
+      <h1 class="text-xl font-bold tracking-wide text-indigo-400">3D 列印成本計算器</h1>
+      <p class="text-xs text-slate-400 mt-1">X2D + AMS Pro 專用估算</p>
+    </header>
+
+    <!-- 主要內容區塊 -->
+    <main class="my-auto py-4 space-y-5">
+      <!-- 總成本顯示面板 -->
+      <div class="bg-gradient-to-br from-indigo-900/60 to-slate-800 border border-indigo-500/30 rounded-2xl p-5 text-center shadow-lg">
+        <div class="text-xs font-medium text-indigo-300 uppercase tracking-wider mb-1">預估總成本</div>
+        <div class="text-4xl font-extrabold text-white tracking-tight my-2">
+          NT$ <span id="totalCost" class="text-indigo-400">0.0</span>
+        </div>
+        <div class="flex justify-around border-t border-slate-700/60 pt-3 mt-3 text-xs text-slate-300">
+          <div>每克約 <span id="costPerG" class="font-bold text-white">0.0</span> 元</div>
+          <div class="text-slate-500">|</div>
+          <div>每小時開銷 <span id="costPerHour" class="font-bold text-white">0.0</span> 元</div>
+        </div>
+      </div>
+
+      <!-- 輸入區塊 -->
+      <div class="bg-slate-800/80 rounded-2xl p-4 border border-slate-700 space-y-4">
+        <!-- 耗材重量 -->
+        <div>
+          <div class="flex justify-between text-sm mb-1">
+            <label for="weight" class="font-medium text-slate-200">耗材重量 (克 / g)</label>
+            <span class="text-xs text-slate-400">含廢料/切片預估</span>
+          </div>
+          <input type="number" id="weight" value="100" min="0" step="1" 
+                 class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-lg font-semibold text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        </div>
+
+        <!-- 列印時間 -->
+        <div>
+          <div class="flex justify-between text-sm mb-1">
+            <label for="hours" class="font-medium text-slate-200">列印時間 (小時 / hr)</label>
+            <span class="text-xs text-slate-400">預估切片時間</span>
+          </div>
+          <input type="number" id="hours" value="4.0" min="0" step="0.1" 
+                 class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-lg font-semibold text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        </div>
+      </div>
+
+      <!-- 詳細成本拆解 -->
+      <div class="bg-slate-800/40 rounded-2xl p-4 border border-slate-800">
+        <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">費用組成明細</h2>
+        <div class="space-y-2 text-sm">
+          <div class="flex justify-between">
+            <span class="text-slate-300">線材費用</span>
+            <span id="filamentCost" class="font-medium text-white">NT$ 0.0</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-300">電費 (新竹偏高/6元)</span>
+            <span id="powerCost" class="font-medium text-white">NT$ 0.0</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-300">設備折舊 (4萬/3000hr)</span>
+            <span id="depreciationCost" class="font-medium text-white">NT$ 0.0</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-300">噴嘴磨損 (250元/副廠)</span>
+            <span id="nozzleCost" class="font-medium text-white">NT$ 0.0</span>
+          </div>
+          <div class="flex justify-between border-t border-slate-700 pt-2 text-xs text-slate-400">
+            <span>失敗風險緩衝 (+5%)</span>
+            <span id="bufferCost" class="text-slate-300">NT$ 0.0</span>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- 底部說明 -->
+    <footer class="text-center text-[10px] text-slate-500 py-2">
+      點選 Safari 分享按鈕可「新增至主畫面」以 App 模式運行
+    </footer>
+  </div>
+
+  <script>
+    // 預設核心參數
+    const PARAMS = {
+      filamentPricePerKg: 300,    // 300元/kg -> 0.3元/g
+      electricityRate: 6.0,       // 新竹偏高電費 6元/度
+      powerConsumptionKW: 0.18,   // 平均功耗 180W -> 0.18 kW
+      deviceCost: 40000,          // 機台購置費 40000元
+      deviceLifespanHours: 3000,  // 攤提 3000 小時
+      nozzleCost: 250,            // 副廠噴嘴 250元
+      nozzleLifespanHours: 500,   // 噴嘴壽命 500 小時
+      failureBufferRate: 0.05     // 5% 失敗緩衝
+    };
+
+    const weightInput = document.getElementById('weight');
+    const hoursInput = document.getElementById('hours');
+
+    function calculate() {
+      const weight = parseFloat(weightInput.value) || 0;
+      const hours = parseFloat(hoursInput.value) || 0;
+
+      // 1. 線材費用
+      const filamentCost = weight * (PARAMS.filamentPricePerKg / 1000);
+
+      // 2. 電費 (每小時 0.18度 * 6元 = 1.08元/hr)
+      const hourlyPowerCost = PARAMS.powerConsumptionKW * PARAMS.electricityRate;
+      const powerCost = hours * hourlyPowerCost;
+
+      // 3. 設備折舊 (40000 / 3000 = 13.33元/hr)
+      const hourlyDepreciation = PARAMS.deviceCost / PARAMS.deviceLifespanHours;
+      const depreciationCost = hours * hourlyDepreciation;
+
+      // 4. 噴嘴磨損 (250 / 500 = 0.5元/hr)
+      const hourlyNozzle = PARAMS.nozzleCost / PARAMS.nozzleLifespanHours;
+      const nozzleCost = hours * hourlyNozzle;
+
+      // 每小時總時間開銷
+      const totalHourlyCost = hourlyPowerCost + hourlyDepreciation + hourlyNozzle;
+
+      // 基本小計與失敗緩衝
+      const subtotal = filamentCost + powerCost + depreciationCost + nozzleCost;
+      const bufferCost = subtotal * PARAMS.failureBufferRate;
+      const totalCost = subtotal + bufferCost;
+
+      // 每克平均費用
+      const costPerG = weight > 0 ? (totalCost / weight) : 0;
+
+      // 更新介面
+      document.getElementById('totalCost').innerText = totalCost.toFixed(1);
+      document.getElementById('costPerG').innerText = costPerG.toFixed(2);
+      document.getElementById('costPerHour').innerText = totalHourlyCost.toFixed(2);
+
+      document.getElementById('filamentCost').innerText = `NT$ ${filamentCost.toFixed(1)}`;
+      document.getElementById('powerCost').innerText = `NT$ ${powerCost.toFixed(1)}`;
+      document.getElementById('depreciationCost').innerText = `NT$ ${depreciationCost.toFixed(1)}`;
+      document.getElementById('nozzleCost').innerText = `NT$ ${nozzleCost.toFixed(1)}`;
+      document.getElementById('bufferCost').innerText = `NT$ ${bufferCost.toFixed(1)}`;
+    }
+
+    weightInput.addEventListener('input', calculate);
+    hoursInput.addEventListener('input', calculate);
+
+    // 初次載入執行
+    calculate();
+  </script>
+</body>
+</html>
